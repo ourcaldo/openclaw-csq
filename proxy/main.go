@@ -237,9 +237,12 @@ func renderPublicHostname() string {
 }
 
 func applyRequiredConfig() {
-	// Ensure controlUi.allowInsecureAuth is set for remote browser access
+	// Ensure controlUi.allowInsecureAuth is set for remote browser access, and
+	// enable the OpenAI-compatible chat completions HTTP endpoint so server-side
+	// clients (e.g. CSQ) can call POST /v1/chat/completions over the gateway.
 	configs := [][]string{
 		{"config", "set", "gateway.controlUi.allowInsecureAuth", "true"},
+		{"config", "set", "gateway.http.endpoints.chatCompletions.enabled", "true"},
 	}
 
 	// Allow Control UI / WebSocket from the public Render URL (browser Origin is https://…).
@@ -678,6 +681,16 @@ func stripProxyHeaders(r *http.Request) {
 }
 
 func handleProxy(w http.ResponseWriter, r *http.Request) {
+	// Machine-to-machine API access: a request carrying a Bearer token that
+	// matches OPENCLAW_GATEWAY_TOKEN is forwarded straight to the loopback
+	// gateway (which performs its own Bearer auth), bypassing the browser
+	// auth cookie. This lets server-side clients such as CSQ call
+	// /v1/chat/completions without establishing a login session.
+	if isBearerAuthed(r) {
+		serveGateway(w, r)
+		return
+	}
+
 	// Check auth cookie (skip for health endpoint, already handled separately)
 	if !isValidAuthCookie(r) {
 		// Show landing page for root, redirect others to root
@@ -689,6 +702,12 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	serveGateway(w, r)
+}
+
+// serveGateway forwards an authenticated request to the loopback gateway,
+// first checking readiness and stripping inbound proxy headers.
+func serveGateway(w http.ResponseWriter, r *http.Request) {
 	if !gatewayReady.Load() {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", "5")
@@ -715,6 +734,20 @@ func handleProxy(w http.ResponseWriter, r *http.Request) {
 		w.Write([]byte(`{"error":"gateway unavailable"}`))
 	}
 	proxy.ServeHTTP(w, r)
+}
+
+// isBearerAuthed reports whether the request carries a Bearer token matching
+// the configured gateway token. Uses a constant-time comparison to avoid
+// timing leaks. Returns false when no gateway token is configured.
+func isBearerAuthed(r *http.Request) bool {
+	if gatewayToken == "" {
+		return false
+	}
+	auth := r.Header.Get("Authorization")
+	if !strings.HasPrefix(auth, "Bearer ") {
+		return false
+	}
+	return hmac.Equal([]byte(strings.TrimPrefix(auth, "Bearer ")), []byte(gatewayToken))
 }
 
 func proxyWebSocket(w http.ResponseWriter, r *http.Request) {
