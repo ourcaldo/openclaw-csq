@@ -244,6 +244,11 @@ func applyRequiredConfig() {
 	configs := [][]string{
 		{"config", "set", "gateway.controlUi.allowInsecureAuth", "true"},
 		{"config", "set", "gateway.http.endpoints.chatCompletions.enabled", "true"},
+// Single source of truth for the gateway token is the Render env value.
+// onboard bakes env->disk only on FIRST boot; afterwards the config file
+// is never re-synced and env edits silently drift from gateway.auth.token.
+// Force-sync on every boot so changing OPENCLAW_GATEWAY_TOKEN in Render +
+// a deploy is enough to rotate the token everywhere (proxy, gateway, CSQ).
 		// OpenClaw >= 2026.9 requires explicit trusted-proxy config when requests
 		// arrive via a reverse proxy (Render routes through its edge, then our loopback
 		// proxy). Narrow: trust only the loopback upstream; Render's X-Forwarded-For
@@ -294,6 +299,12 @@ func applyRequiredConfig() {
 	if extra := strings.TrimSpace(os.Getenv("OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS")); extra != "" {
 		configs = append(configs, []string{"config", "set", "gateway.controlUi.allowedOrigins", extra})
 		log.Printf("Applying OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS override")
+	}
+
+	if gatewayToken != "" {
+		configs = append(configs, []string{"config", "set", "gateway.auth.token", gatewayToken})
+	} else {
+		log.Printf("Warning: OPENCLAW_GATEWAY_TOKEN unset; gateway.auth.token not synced (onboard value remains)")
 	}
 
 	for _, args := range configs {
