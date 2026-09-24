@@ -245,6 +245,36 @@ func applyRequiredConfig() {
 		{"config", "set", "gateway.http.endpoints.chatCompletions.enabled", "true"},
 	}
 
+	// Register Cloudflare Workers AI as a custom OpenAI-compatible provider
+	// (baseUrl = the account's /ai/v1 OpenAI-compat surface; auth via
+	// CLOUDFLARE_API_KEY, account via CLOUDFLARE_ACCOUNT_ID). Applies only
+	// when both env vars are present — no-op otherwise.
+	if apiKey := strings.TrimSpace(os.Getenv("CLOUDFLARE_API_TOKEN")); apiKey != "" {
+		if accountID := strings.TrimSpace(os.Getenv("CLOUDFLARE_ACCOUNT_ID")); accountID != "" {
+			baseURL := fmt.Sprintf("https://api.cloudflare.com/client/v4/accounts/%s/ai/v1", accountID)
+			if v := strings.TrimSpace(os.Getenv("CLOUDFLARE_WORKERS_AI_BASE_URL")); v != "" {
+				baseURL = v
+			}
+			providerJSON := fmt.Sprintf(
+				`{"baseUrl":%q,"apiKey":"${CLOUDFLARE_API_TOKEN}","api":"openai-completions","models":[{"id":"@cf/zai-org/glm-5.3-flash","name":"GLM 5.3 Flash"},{"id":"@cf/zai-org/glm-5.3","name":"GLM 5.3"},{"id":"@cf/qwen/qwen3.8-27b","name":"Qwen3 8 27B"}]}`,
+				baseURL,
+			)
+			configs = append(configs,
+				[]string{"config", "set", "--strict-json", "models.providers.cloudflare-workers-ai", providerJSON},
+			)
+			log.Printf("Registering models.providers.cloudflare-workers-ai (baseUrl %s)", baseURL)
+
+			// Optional: switch the primary model (e.g. set OPENCLAW_PRIMARY_MODEL=
+			// cloudflare-workers-ai/@cf/zai-org/glm-5.3-flash on the Render service).
+			if primary := strings.TrimSpace(os.Getenv("OPENCLAW_PRIMARY_MODEL")); primary != "" {
+				configs = append(configs,
+					[]string{"config", "set", "agents.defaults.model.primary", primary},
+				)
+				log.Printf("Setting agents.defaults.model.primary=%s", primary)
+			}
+		}
+	}
+
 	// Allow Control UI / WebSocket from the public Render URL (browser Origin is https://…).
 	if renderHost := renderPublicHostname(); renderHost != "" {
 		origin := fmt.Sprintf(`["https://%s"]`, renderHost)
@@ -792,3 +822,4 @@ func proxyWebSocket(w http.ResponseWriter, r *http.Request) {
 	}()
 	wg.Wait()
 }
+
