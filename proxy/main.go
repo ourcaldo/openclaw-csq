@@ -243,6 +243,11 @@ func applyRequiredConfig() {
 	configs := [][]string{
 		{"config", "set", "gateway.controlUi.allowInsecureAuth", "true"},
 		{"config", "set", "gateway.http.endpoints.chatCompletions.enabled", "true"},
+		// OpenClaw >= 2026.9 requires explicit trusted-proxy config when requests
+		// arrive via a reverse proxy (Render routes through its edge, then our loopback
+		// proxy). Narrow: trust only the loopback upstream; Render's X-Forwarded-For
+		// is then accepted and rebuilt safely by the gateway.
+		{"config", "set", "gateway.trustedProxies", `["127.0.0.1"]`},
 	}
 
 	// Register Cloudflare Workers AI as a custom OpenAI-compatible provider
