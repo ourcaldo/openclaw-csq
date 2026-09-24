@@ -14,6 +14,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"path/filepath"
 	"os/exec"
 	"os/signal"
 	"strings"
@@ -315,7 +316,21 @@ func startGateway() {
 		return
 	}
 
-	log.Printf("Starting openclaw gateway on port %s...", gatewayPort)
+	// Clear a stale Gateway owner-lease left on the persistent disk by the
+// previous instance (Render deploys can SIGKILL the old process, so the
+// lease never gets released; without this every restart crash-loops with
+// "Another Gateway owner lease is still active"). Best-effort: a stop
+// command releases it cleanly when a stale process exists; then remove
+// the common lease file names if they still remain.
+stopCmd := exec.Command("/usr/local/bin/openclaw", "gateway", "stop")
+stopCmd.Env = envForOpenclaw("OPENCLAW_STATE_DIR="+stateDir, "OPENCLAW_WORKSPACE_DIR="+workspaceDir)
+if err := stopCmd.Run(); err != nil {
+	log.Printf("gateway stop (stale lease cleanup): %v", err)
+}
+_ = os.Remove(filepath.Join(stateDir, ".gateway-owner-lease"))
+_ = os.Remove(filepath.Join(stateDir, ".openclaw-gateway-lease"))
+
+log.Printf("Starting openclaw gateway on port %s...", gatewayPort)
 
 	cmd := exec.Command("/usr/local/bin/openclaw", "gateway", "run",
 		"--port", gatewayPort,
