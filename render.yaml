@@ -31,6 +31,15 @@ services:
         sync: false
       - key: MINIMAX_API_KEY
         sync: false
+      # Cloudflare Workers AI (custom provider registered by the proxy on boot)
+      - key: CLOUDFLARE_API_TOKEN
+        sync: false
+      - key: CLOUDFLARE_ACCOUNT_ID
+        sync: false
+      # Optional: set to switch the primary model, e.g.
+      # cloudflare-workers-ai/@cf/zai-org/glm-5.3-flash
+      - key: OPENCLAW_PRIMARY_MODEL
+        sync: false
     disk:
       name: openclaw-data
       mountPath: /data
